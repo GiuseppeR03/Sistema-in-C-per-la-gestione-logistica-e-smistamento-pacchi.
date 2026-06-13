@@ -1,0 +1,2 @@
+# Sistema-in-C-per-la-gestione-logistica-e-smistamento-pacchi.
+Gestione Logistica in C Un sistema in C per la simulazione e la gestione di un magazzino logistico. Il progetto implementa strutture dati avanzate e dinamiche (Array, Liste concatenate, Code FIFO e Tabelle Hash) per ottimizzare il caricamento, lo smistamento per zone geografiche e la ricerca rapida dei pacchi in base alla priorità di spedizione.
