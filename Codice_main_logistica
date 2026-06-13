@@ -1,0 +1,373 @@
+/**
+ * @file gestione_spedizioni.c
+ * @brief Sistema in C per la gestione logistica, smistamento e ricerca pacchi.
+ *
+ * Il programma implementa strutture dati dinamiche (vettori, code e tabelle hash)
+ * per elaborare le spedizioni di un magazzino, filtrando i pacchi urgenti
+ * e gestendo il loro ciclo di vita fino alla consegna.
+ */
+
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+
+#define NOME_FILE "pacchi.txt"
+#define DIM_HASH 101 // Dimensione Tabella Hash (numero primo per ridurre collisioni)
+
+// --- STRUTTURE DATI ---
+
+typedef struct {
+    char codice[20];
+    char zona[20];
+    int classe;          // 1 (Urgente) - 4 (Standard)
+    int giorni_giacenza;
+} Pacco;
+
+typedef struct nodo_coda {
+    Pacco info;
+    struct nodo_coda* next;
+} NodoCoda;
+
+typedef struct {
+    NodoCoda* primo;
+    NodoCoda* ultimo;
+} CodaPacchi;
+
+typedef struct nodo_zona {
+    char nome_zona[20];
+    CodaPacchi coda_pacchi;
+    struct nodo_zona* next;
+} NodoZona;
+typedef NodoZona* ListaZone;
+
+typedef struct nodo_hash {
+    Pacco info;
+    struct nodo_hash* next;
+} NodoHash;
+
+typedef struct {
+    NodoHash* array[DIM_HASH];
+} TabellaHash;
+
+
+// --- FUNZIONI DI SUPPORTO ---
+
+/**
+ * @brief Inizializza la Tabella Hash impostando tutti i puntatori a NULL.
+ */
+void inizializza_tabella_hash(TabellaHash* th) {
+    for (int i = 0; i < DIM_HASH; i++) {
+        th->array[i] = NULL;
+    }
+}
+
+/**
+ * @brief Calcola l'indice hash per una data stringa (chiave).
+ */
+unsigned int calcola_hash(const char* str) {
+    int h = 0;
+    for (int i = 0; str[i] != '\0'; i++) {
+        h += str[i];
+    }
+    return h % DIM_HASH;
+}
+
+void stampa_pacco(Pacco p) {
+    printf("[%s] Zona: %s | Classe: %d | Giacenza: %d gg\n",
+           p.codice, p.zona, p.classe, p.giorni_giacenza);
+}
+
+NodoZona* cerca_zona(ListaZone lista, char* nome_zona) {
+    NodoZona* zona_corr = lista;
+    while (zona_corr != NULL) {
+        if (strcmp(zona_corr->nome_zona, nome_zona) == 0) {
+            return zona_corr;
+        }
+        zona_corr = zona_corr->next;
+    }
+    return NULL;
+}
+
+NodoZona* crea_zona(ListaZone lista, char* nome_zona) {
+    NodoZona* nuova_zona = malloc(sizeof(NodoZona));
+    strcpy(nuova_zona->nome_zona, nome_zona);
+    nuova_zona->coda_pacchi.primo = nuova_zona->coda_pacchi.ultimo = NULL;
+    nuova_zona->next = lista;
+
+    return nuova_zona;
+}
+
+void accoda_pacco(CodaPacchi* coda, Pacco p) {
+    NodoCoda* nuovo = malloc(sizeof(NodoCoda));
+    if (nuovo == NULL) return;
+
+    nuovo->info = p;
+    nuovo->next = NULL;
+
+    if (coda->primo == NULL) {
+        coda->primo = nuovo;
+    } else {
+        coda->ultimo->next = nuovo;
+    }
+    coda->ultimo = nuovo;
+}
+
+// --- LOGICA PRINCIPALE (ARRAY DINAMICI) ---
+
+/**
+ * @brief Legge il file di input e alloca dinamicamente un vettore di pacchi.
+ * @param nome_file Percorso del file da leggere.
+ * @param dim Puntatore in cui salvare la dimensione del vettore.
+ * @return Puntatore al vettore dinamico popolato.
+ */
+Pacco* carica_dati_da_file(const char* nome_file, int* dim) {
+    FILE* fp = fopen(nome_file, "r");
+    if (fp == NULL) return NULL;
+
+    Pacco* vettore = NULL;
+    *dim = 0;
+
+    if (fscanf(fp, "%d", dim) != 1 || *dim == 0) {
+        fclose(fp);
+        return NULL;
+    }
+
+    vettore = malloc((*dim) * sizeof(Pacco));
+    if (vettore == NULL) {
+        fclose(fp);
+        return NULL;
+    }
+
+    for (int i = 0; i < *dim; i++) {
+        fscanf(fp, "%s%s%d%d",
+            vettore[i].codice,
+            vettore[i].zona,
+            &vettore[i].classe,
+            &vettore[i].giorni_giacenza);
+    }
+
+    fclose(fp);
+    return vettore;
+}
+
+/**
+ * @brief Aggiorna i giorni di giacenza per l'intero lotto di pacchi.
+ */
+void aggiorna_giacenza(Pacco* vettore, int dim, int ritardo_giorni) {
+    if (vettore == NULL || dim == 0) return;
+
+    for (int i = 0; i < dim; i++) {
+        vettore[i].giorni_giacenza += ritardo_giorni;
+    }
+}
+
+/**
+ * @brief Filtra e genera un nuovo vettore contenente solo spedizioni urgenti (Classe 1 e 2).
+ */
+Pacco* estrai_pacchi_urgenti(Pacco* vettore, int dim, int* dim_urgenti) {
+    if (vettore == NULL || dim == 0) return NULL;
+
+    *dim_urgenti = 0;
+
+    for (int i = 0; i < dim; i++) {
+        if (vettore[i].classe == 1 || vettore[i].classe == 2) {
+            (*dim_urgenti)++;
+        }
+    }
+
+    if (*dim_urgenti == 0) return NULL;
+
+    Pacco* urgenti = malloc(*dim_urgenti * sizeof(Pacco));
+    if (urgenti == NULL) return NULL;
+
+    int j = 0;
+    for (int i = 0; i < dim; i++) {
+        if (vettore[i].classe == 1 || vettore[i].classe == 2) {
+            urgenti[j] = vettore[i];
+            j++;
+        }
+    }
+    return urgenti;
+}
+
+/**
+ * @brief Ordina il vettore dei pacchi per giorni di giacenza decrescenti (Bubble Sort).
+ */
+void ordina_per_giacenza(Pacco* vettore, int dim) {
+    if (vettore == NULL || dim == 0) return;
+
+    for (int i = 0; i < dim - 1; i++) {
+        for (int j = 0; j < dim - i - 1; j++) {
+            if (vettore[j].giorni_giacenza < vettore[j+1].giorni_giacenza) {
+                Pacco temp = vettore[j];
+                vettore[j] = vettore[j+1];
+                vettore[j+1] = temp;
+            }
+        }
+    }
+}
+
+// --- LOGICA PRINCIPALE (LISTE, CODE E HASH MAP) ---
+
+/**
+ * @brief Smista un vettore di pacchi all'interno di una lista concatenata di zone geografiche.
+ */
+void smista_in_zone(ListaZone* lista, Pacco* vettore, int dim) {
+    if (vettore == NULL || dim == 0) return;
+
+    for (int i = 0; i < dim; i++) {
+        NodoZona* zona_corr = cerca_zona(*lista, vettore[i].zona);
+        if (zona_corr == NULL) {
+            zona_corr = crea_zona(*lista, vettore[i].zona);
+            *lista = zona_corr;
+        }
+        accoda_pacco(&zona_corr->coda_pacchi, vettore[i]);
+    }
+}
+
+/**
+ * @brief Inserisce un singolo pacco nella Hash Table gestendo le collisioni in testa.
+ */
+void hash_inserimento(TabellaHash* th, Pacco p) {
+    NodoHash* nuovo = malloc(sizeof(NodoHash));
+    if (nuovo == NULL) return;
+
+    int idx = calcola_hash(p.codice);
+    nuovo->info = p;
+    nuovo->next = th->array[idx];
+    th->array[idx] = nuovo;
+}
+
+/**
+ * @brief Popola la Tabella Hash navigando l'intera struttura Lista di Zone -> Code.
+ */
+void hash_popolamento_da_zone(TabellaHash* th, ListaZone lista) {
+    NodoZona* zona_corr = lista;
+    while (zona_corr != NULL) {
+        NodoCoda* nodo_corr = zona_corr->coda_pacchi.primo;
+        while (nodo_corr != NULL) {
+            hash_inserimento(th, nodo_corr->info);
+            nodo_corr = nodo_corr->next;
+        }
+        zona_corr = zona_corr->next;
+    }
+}
+
+/**
+ * @brief Esegue la ricerca in tempo medio O(1) di un pacco tramite il suo codice.
+ */
+Pacco* hash_ricerca(TabellaHash* th, const char* codice_pacco) {
+    int idx = calcola_hash(codice_pacco);
+    NodoHash* nodo_corr = th->array[idx];
+
+    while (nodo_corr != NULL) {
+        if (strcmp(nodo_corr->info.codice, codice_pacco) == 0) {
+            return &nodo_corr->info;
+        }
+        nodo_corr = nodo_corr->next;
+    }
+    return NULL;
+}
+
+/**
+ * @brief Simula la consegna di un pacco rimuovendolo dalla Tabella Hash.
+ * @return 1 se cancellato con successo, 0 altrimenti.
+ */
+int hash_cancellazione(TabellaHash* th, const char* codice_pacco) {
+    int idx = calcola_hash(codice_pacco);
+    NodoHash* corr = th->array[idx];
+    NodoHash* prev = NULL;
+
+    while (corr != NULL) {
+        if (strcmp(corr->info.codice, codice_pacco) == 0) {
+            if (prev == NULL) {
+                th->array[idx] = corr->next;
+            } else {
+                prev->next = corr->next;
+            }
+            free(corr);
+            return 1;
+        }
+        prev = corr;
+        corr = corr->next;
+    }
+    return 0;
+}
+
+/**
+ * @brief Estrae in logica FIFO il prossimo pacco in partenza per una determinata zona.
+ * @return 1 in caso di successo, 0 se la zona non esiste o la coda è vuota.
+ */
+int estrai_da_coda_zona(ListaZone lista, const char* nome_zona, Pacco* pacco_estratto) {
+    if (lista == NULL) return 0;
+
+    NodoZona* zona_corr = cerca_zona(lista, (char*)nome_zona);
+    if (zona_corr == NULL) return 0;
+
+    if (zona_corr->coda_pacchi.primo != NULL) {
+        NodoCoda* nodo_da_eliminare = zona_corr->coda_pacchi.primo;
+        *pacco_estratto = nodo_da_eliminare->info;
+
+        zona_corr->coda_pacchi.primo = nodo_da_eliminare->next;
+        if (zona_corr->coda_pacchi.primo == NULL) {
+            zona_corr->coda_pacchi.ultimo = NULL;
+        }
+
+        free(nodo_da_eliminare);
+        return 1;
+    }
+    return 0;
+}
+
+// ============================================================================
+// ====== ENTRY POINT =========================================================
+// ============================================================================
+
+int main() {
+    int dim_totale = 0;
+    int dim_urgenti = 0;
+    ListaZone lista_zone = NULL;
+    TabellaHash tab_hash;
+
+    inizializza_tabella_hash(&tab_hash);
+
+    printf("--- FASE 1: Caricamento e Ottimizzazione Dati ---\n");
+    Pacco* pacchi = carica_dati_da_file(NOME_FILE, &dim_totale);
+
+    // Aggiunge 2 giorni per simulare un ritardo logistico
+    aggiorna_giacenza(pacchi, dim_totale, 2);
+
+    Pacco* urgenti = estrai_pacchi_urgenti(pacchi, dim_totale, &dim_urgenti);
+    ordina_per_giacenza(urgenti, dim_urgenti);
+
+    printf("Priorità Spedizioni Urgenti:\n");
+    for (int i = 0; i < dim_urgenti; i++) {
+        stampa_pacco(urgenti[i]);
+    }
+
+    printf("\n--- FASE 2: Smistamento e Indicizzazione ---\n");
+    smista_in_zone(&lista_zone, urgenti, dim_urgenti);
+    hash_popolamento_da_zone(&tab_hash, lista_zone);
+
+    printf("\nRicerca rapida pacco PCK4455C:\n");
+    Pacco* p = hash_ricerca(&tab_hash, "PCK4455C");
+    if (p) stampa_pacco(*p);
+
+    printf("\nSimulazione consegna PCK4455C (Rimozione dal sistema)...\n");
+    if(hash_cancellazione(&tab_hash, "PCK4455C")) {
+        printf("Pacco PCK4455C consegnato con successo.\n");
+    }
+
+    Pacco estratto;
+    if (estrai_da_coda_zona(lista_zone, "Isole", &estratto)) {
+        printf("\nProssimo pacco in partenza per il settore 'Isole':\n");
+        stampa_pacco(estratto);
+    }
+
+    // Nota: in un progetto completo, qui andrebbe implementata
+    // la deallocazione completa (free) delle strutture dinamiche.
+
+    return 0;
+}
